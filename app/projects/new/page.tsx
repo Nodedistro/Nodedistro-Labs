@@ -37,12 +37,33 @@ function NewProjectForm() {
   useEffect(() => setPrompt(params.get("prompt") ?? ""), [params]);
   async function generate() {
     setError("");
+    if (prompt.trim().length < 10) {
+      setError("Describe the project in at least 10 characters.");
+      return;
+    }
     setBusy(true);
     try {
+      const rawRequirements = {
+        ...useWorkspace.getState().preferences,
+        ...requirements,
+      };
+      const safeRequirements = Object.fromEntries(
+        Object.entries(rawRequirements)
+          .filter(
+            ([key, value]) =>
+              key.length <= 100 &&
+              typeof value === "string" &&
+              value.length <= 200,
+          )
+          .slice(0, 30),
+      );
       const r = await fetch("/api/ai/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, requirements: {...useWorkspace.getState().preferences,...requirements} }),
+        body: JSON.stringify({
+          prompt: prompt.trim(),
+          requirements: safeRequirements,
+        }),
       });
       const data = await r.json();
       if (!r.ok) throw Error(data.error);

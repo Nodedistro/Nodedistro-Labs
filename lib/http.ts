@@ -15,7 +15,16 @@ export function sameOrigin(request: Request) {
   const configured = process.env.NEXT_PUBLIC_APP_URL;
   if (!configured)
     throw new HttpError(503, "Application URL is not configured.");
-  if (request.headers.get("origin") !== new URL(configured).origin)
+  let configuredOrigin: string;
+  try {
+    configuredOrigin = new URL(configured).origin;
+  } catch {
+    throw new HttpError(
+      503,
+      "Application URL is malformed. Set NEXT_PUBLIC_APP_URL to a URL such as https://nodedistrolabs.nodedistro.com.",
+    );
+  }
+  if (request.headers.get("origin") !== configuredOrigin)
     throw new HttpError(403, "Request origin is not allowed.");
 }
 export async function rateLimit(scope: string, limit = 60) {
@@ -35,9 +44,19 @@ export async function rateLimit(scope: string, limit = 60) {
 export function apiError(error: unknown) {
   if (error instanceof HttpError)
     return Response.json({ error: error.message }, { status: error.status });
-  if (error instanceof ZodError || error instanceof SyntaxError)
+  if (error instanceof ZodError) {
+    const issue = error.issues[0];
+    const field = issue?.path.length ? issue.path.join(".") : "request";
     return Response.json(
-      { error: "Invalid request. Check the fields and try again." },
+      {
+        error: `Invalid ${field}: ${issue?.message ?? "check this field and try again."}`,
+      },
+      { status: 400 },
+    );
+  }
+  if (error instanceof SyntaxError)
+    return Response.json(
+      { error: "Invalid JSON request. Check the fields and try again." },
       { status: 400 },
     );
   const providerError = aiProviderError(error);
