@@ -376,7 +376,9 @@ async function dispatch(
       const { db, user } = await authenticate();
       const input = z
         .object({
-          prompt: z.string().min(10).max(8000),
+          // Detailed multi-board specifications can be long; keep this
+          // bounded while allowing a complete engineering brief.
+          prompt: z.string().min(10).max(30000),
           requirements: z
             .record(z.string().max(100), z.string().max(200))
             .refine((r) => Object.keys(r).length <= 30),
