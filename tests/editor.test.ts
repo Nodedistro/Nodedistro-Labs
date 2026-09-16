@@ -1,0 +1,15 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {demoDocument,blankDocument} from '../lib/editor/demo';
+import {applyActions,validateTopology} from '../lib/editor/actions';
+import {runChecks,segmentDistance} from '../lib/editor/checks';
+import {csv,bomRows} from '../lib/manufacturing/exports';
+import {documentSchema,proposalSchema} from '../types/project';
+test('demo parses and has consistent logical references',()=>{const d=demoDocument();documentSchema.parse(d);validateTopology(d);assert.equal(d.components.length,10);});
+test('AI actions are atomic and reject missing targets',()=>{const d=demoDocument();assert.throws(()=>applyActions(d,[{type:'CHANGE_VALUE',id:'u1',value:'changed'},{type:'REMOVE_COMPONENT',id:'unknown'}]));assert.notEqual(d.components.find(c=>c.id==='u1')?.value,'changed');});
+test('component removal cleans nets and preserves original',()=>{const d=demoDocument(),next=applyActions(d,[{type:'REMOVE_COMPONENT',id:'u1'}]);assert.ok(d.components.some(c=>c.id==='u1'));assert.ok(!next.components.some(c=>c.id==='u1'));assert.ok(next.nets.every(n=>n.connections.every(c=>c.componentId!=='u1')));});
+test('duplicate pins across nets are rejected',()=>{const d=demoDocument();assert.throws(()=>applyActions(d,[{type:'CREATE_NET',net:{id:'bad',name:'bad',connections:[{componentId:'u1',pinId:'1'}]}}]),/multiple nets/);});
+test('arbitrary actions and automatic approvals are invalid',()=>{assert.equal(proposalSchema.safeParse({message:'',reason:'',actions:[{type:'EXECUTE_CODE',code:'anything'}],warnings:[],requiresApproval:true}).success,false);assert.equal(proposalSchema.safeParse({message:'',reason:'',actions:[],warnings:[],requiresApproval:false}).success,false);});
+test('checks flag demonstrably missing pins and unrouted connectivity',()=>{const report=runChecks(demoDocument());assert.ok(report.results.some(r=>r.rule==='floating-3'&&r.objectId==='j1'));assert.ok(report.results.some(r=>r.rule==='routing-unverified'));assert.ok(report.results.some(r=>r.rule==='missing-mpn'&&r.objectId==='j2'));assert.equal(report.passed+report.results.length,report.total);});
+test('clearance checks catch crossing traces but ignore separate layers',()=>{const d=blankDocument();d.traces=[{id:'a',netId:'a',layer:0,width:.25,points:[{x:5,y:5},{x:15,y:15}]},{id:'b',netId:'b',layer:0,width:.25,points:[{x:5,y:15},{x:15,y:5}]}];assert.ok(runChecks(d).results.some(r=>r.rule.startsWith('trace-clearance')));d.traces[1].layer=1;assert.ok(!runChecks(d).results.some(r=>r.rule.startsWith('trace-clearance')));assert.equal(segmentDistance({x:0,y:0},{x:10,y:0},{x:3,y:0},{x:5,y:0}),0);});
+test('CSV escapes formulas, commas and quotes',()=>{const out=csv([{Reference:'=WEBSERVICE("x")',Description:'a,b',Quantity:1}]);assert.ok(out.includes("\"'=WEBSERVICE"));assert.ok(out.includes('"a,b"'));assert.equal(bomRows(demoDocument()).length,10);});
